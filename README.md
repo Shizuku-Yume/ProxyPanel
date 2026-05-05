@@ -26,12 +26,13 @@ docker compose up -d --build
 
 ## 功能说明
 
-- 添加订阅源：支持直接填入 `vless://...`，或填入 Clash YAML / VLESS 文本订阅 URL。
-- 节点分类：后端会解析域名到 IPv4，再用 `data/geoip.json` 的本地 CIDR 数据库标记地区；可以替换该文件扩展地区库。
+- 添加订阅源：支持直接填入或粘贴聚合文本中的 `vless://`、`vmess://`、`hysteria2://`/`hy2://`、`tuic://`、`anytls://` 等分享链接，也支持 Clash/Mihomo YAML 订阅 URL。
+- 节点分类：后端会解析域名到 IPv4，优先使用内置 GeoIP 数据标记国家/州/城市，并以 `data/geoip.json` 的本地 CIDR 数据库作为兜底。
 - 节点探测：首版执行 TCP connect 或 TLS handshake，记录延迟、成功率、连续失败次数并生成评分。
 - 输出订阅：后台创建输出配置后复制：
   - `/sub/:token/clash`
-  - `/sub/:token/vless`
+  - `/sub/:token/vless`（兼容旧入口，实际返回所有支持协议的分享链接列表）
+  - `/sub/:token/uris`（分享链接列表）
 
 ## 后续扩展点
 

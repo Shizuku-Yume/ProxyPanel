@@ -3,3 +3,4 @@ export * from "./schemas.js";
 export * from "./utils.js";
 export * from "./vless.js";
 export * from "./clash.js";
+export * from "./uri.js";

@@ -5,6 +5,7 @@ import { buildApp } from "../app.js";
 import type { AppConfig } from "../config.js";
 
 const apps: Array<ReturnType<typeof buildApp>> = [];
+const aggregateSample = "vl-reality-proxy vmess://eyJhZGQiOiJnY3Bwcm94eS5zaGl6dWt1eXVtZS5kcGRucy5vcmciLCJhaWQiOiIwIiwiaG9zdCI6ImdjcHByb3h5LnNoaXp1a3V5dW1lLmRwZG5zLm9yZyIsImlkIjoiYzU0MjEyYWYtNTgxMi00YjM3LThjODEtZTkxZDQ4YWI1NWY5IiwibmV0Ijoid3MiLCJwYXRoIjoiYzU0MjEyYWYtNTgxMi00YjM3LThjODEtZTkxZDQ4YWI1NWY5LXZtIiwicG9ydCI6IjIwODMiLCJwcyI6InZtLXdzLXRscy1wcm94eSIsInRscyI6InRscyIsInNuaSI6ImdjcHByb3h5LnNoaXp1a3V5dW1lLmRwZG5zLm9yZyIsImZwIjoiY2hyb21lIiwidHlwZSI6Im5vbmUiLCJ2IjoiMiJ9Cg== hysteria2://c54212af-5812-4b37-8c81-e91d48ab55f9@gcpproxy.shizukuyume.dpdns.org:47730?security=tls&alpn=h3&insecure=0&allowInsecure=0&sni=gcpproxy.shizukuyume.dpdns.org#hy2-proxy tuic://c54212af-5812-4b37-8c81-e91d48ab55f9:c54212af-5812-4b37-8c81-e91d48ab55f9@gcpproxy.shizukuyume.dpdns.org:43813?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=gcpproxy.shizukuyume.dpdns.org&insecure=0&allowInsecure=0#tu5-proxy anytls://c54212af-5812-4b37-8c81-e91d48ab55f9@gcpproxy.shizukuyume.dpdns.org:42438?&sni=gcpproxy.shizukuyume.dpdns.org&allowInsecure=0&insecure=0#anytls-proxy";
 
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
@@ -26,13 +27,16 @@ function testConfig(): AppConfig {
   };
 }
 
+async function loginToken(app: ReturnType<typeof buildApp>): Promise<string> {
+  const login = await app.inject({ method: "POST", url: "/api/login", payload: { password: "testpass" } });
+  return login.json<{ token: string }>().token;
+}
+
 describe("source API", () => {
   it("creates, refreshes and deletes a direct VLESS source even with empty JSON body", async () => {
     const app = buildApp(testConfig());
     apps.push(app);
-
-    const login = await app.inject({ method: "POST", url: "/api/login", payload: { password: "testpass" } });
-    const token = login.json<{ token: string }>().token;
+    const token = await loginToken(app);
 
     const created = await app.inject({
       method: "POST",
@@ -66,5 +70,26 @@ describe("source API", () => {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }
     });
     expect(deleted.statusCode).toBe(200);
+  });
+
+  it("refreshes pasted aggregate text containing vmess, hysteria2, tuic5 and anytls", async () => {
+    const app = buildApp(testConfig());
+    apps.push(app);
+    const token = await loginToken(app);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/sources",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "aggregate", url: aggregateSample, type: "auto", enabled: true, refreshIntervalMinutes: 60 }
+    });
+    const sourceId = created.json<{ id: string }>().id;
+
+    const refreshed = await app.inject({ method: "POST", url: `/api/sources/${sourceId}/refresh`, headers: { authorization: `Bearer ${token}` } });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json<{ count: number }>().count).toBe(4);
+
+    const nodes = await app.inject({ method: "GET", url: "/api/nodes", headers: { authorization: `Bearer ${token}` } });
+    expect(nodes.json<Array<{ protocol: string }>>().map((node) => node.protocol).sort()).toEqual(["anytls", "hysteria2", "tuic", "vmess"]);
   });
 });

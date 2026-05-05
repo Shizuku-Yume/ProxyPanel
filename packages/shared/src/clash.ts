@@ -13,6 +13,7 @@ interface ClashProxy {
   tls?: boolean;
   network?: string;
   sni?: string;
+  servername?: string;
   [key: string]: unknown;
 }
 
@@ -24,18 +25,19 @@ export function parseClashYaml(text: string): ClashProxy[] {
 }
 
 export function clashProxyToNode(sourceId: string, proxy: ClashProxy, now = new Date().toISOString()): ProxyNode | null {
-  const protocol = String(proxy.type ?? "unknown").toLowerCase() as ProxyNode["protocol"];
+  const rawProtocol = String(proxy.type ?? "unknown").toLowerCase();
+  const protocol = (rawProtocol === "hy2" ? "hysteria2" : rawProtocol) as ProxyNode["protocol"];
   const host = String(proxy.server ?? "").trim();
   const port = Number(proxy.port ?? 0);
   if (!host || !Number.isInteger(port) || port <= 0) return null;
   const name = String(proxy.name ?? `${host}:${port}`);
-  const credential = String(proxy.uuid ?? proxy.password ?? proxy.cipher ?? "");
-  const fingerprint = createFingerprint([protocol, host, port, credential, proxy.sni, proxy.network]);
+  const credential = String(proxy.uuid ?? proxy.password ?? proxy.cipher ?? proxy.username ?? "");
+  const fingerprint = createFingerprint([protocol, host, port, credential, proxy.sni ?? proxy.servername, proxy.network]);
   return {
     id: fingerprint,
     sourceId,
     name,
-    protocol: ["vless", "trojan", "vmess", "ss", "http", "socks5"].includes(protocol) ? protocol : "unknown",
+    protocol: ["vless", "trojan", "vmess", "ss", "http", "socks5", "hysteria2", "tuic", "anytls"].includes(protocol) ? protocol : "unknown",
     host,
     port,
     ip: null,
@@ -59,9 +61,14 @@ export function parseClashNodes(sourceId: string, text: string, now = new Date()
   return parseClashYaml(text).map((proxy) => clashProxyToNode(sourceId, proxy, now)).filter((node): node is ProxyNode => node != null);
 }
 
+
+function compact<T extends Record<string, unknown>>(input: T): T {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== "")) as T;
+}
+
 export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | null {
   if (node.protocol === "vless" && node.raw.uuid) {
-    return {
+    return compact({
       name: node.name,
       type: "vless",
       server: node.host,
@@ -71,7 +78,60 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       servername: node.raw.sni ?? node.raw.servername,
       network: node.raw.type ?? node.raw.network ?? "tcp",
       "skip-cert-verify": Boolean(node.raw["skip-cert-verify"] ?? false)
-    };
+    });
+  }
+  if (node.protocol === "vmess" && node.raw.uuid) {
+    return compact({
+      name: node.name,
+      type: "vmess",
+      server: node.host,
+      port: node.port,
+      uuid: node.raw.uuid,
+      alterId: node.raw.alterId ?? 0,
+      cipher: node.raw.cipher ?? "auto",
+      tls: Boolean(node.raw.tls),
+      servername: node.raw.sni ?? node.raw.servername,
+      network: node.raw.network ?? "tcp",
+      "ws-opts": node.raw.network === "ws" ? { path: node.raw.path ?? "/", headers: compact({ Host: node.raw.host }) } : undefined
+    });
+  }
+  if (node.protocol === "hysteria2") {
+    return compact({
+      name: node.name,
+      type: "hysteria2",
+      server: node.host,
+      port: node.port,
+      password: node.raw.password,
+      sni: node.raw.sni,
+      alpn: node.raw.alpn,
+      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+    });
+  }
+  if (node.protocol === "tuic") {
+    return compact({
+      name: node.name,
+      type: "tuic",
+      server: node.host,
+      port: node.port,
+      uuid: node.raw.uuid,
+      password: node.raw.password,
+      sni: node.raw.sni,
+      alpn: node.raw.alpn,
+      "congestion-controller": node.raw["congestion-controller"] ?? "bbr",
+      "udp-relay-mode": node.raw["udp-relay-mode"] ?? "native",
+      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+    });
+  }
+  if (node.protocol === "anytls") {
+    return compact({
+      name: node.name,
+      type: "anytls",
+      server: node.host,
+      port: node.port,
+      password: node.raw.password,
+      sni: node.raw.sni,
+      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+    });
   }
   const raw = { ...node.raw };
   return {
@@ -99,3 +159,4 @@ export function exportClash(nodes: ProxyNode[]): string {
     rules: ["MATCH,ProxyPanel-Select"]
   }, { lineWidth: 160 });
 }
+

@@ -1,9 +1,16 @@
 import dns from "node:dns/promises";
 import fs from "node:fs";
 import net from "node:net";
+import geoip from "geoip-lite";
 
 interface GeoEntry { cidr: string; region: string }
 interface ParsedGeoEntry extends GeoEntry { base: number; mask: number }
+
+const COUNTRY_NAMES: Record<string, string> = {
+  AU: "Australia", BR: "Brazil", CA: "Canada", CN: "China", DE: "Germany", FR: "France", GB: "United Kingdom",
+  HK: "Hong Kong", ID: "Indonesia", IN: "India", JP: "Japan", KR: "South Korea", NL: "Netherlands", RU: "Russia",
+  SG: "Singapore", TW: "Taiwan", US: "United States", VN: "Vietnam"
+};
 
 function ipv4ToInt(ip: string): number | null {
   const parts = ip.split(".").map(Number);
@@ -18,6 +25,18 @@ function parseCidr(cidr: string): { base: number; mask: number } | null {
   if (base == null || !Number.isInteger(bits) || bits < 0 || bits > 32) return null;
   const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
   return { base: base & mask, mask };
+}
+
+function isPrivateIp(ip: string): boolean {
+  return ip.startsWith("10.") || ip.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) || ip.startsWith("127.");
+}
+
+function formatGeo(ip: string): string | null {
+  const result = geoip.lookup(ip);
+  if (!result) return null;
+  const country = COUNTRY_NAMES[result.country] ?? result.country;
+  const parts = [country, result.region, result.city].filter((part) => typeof part === "string" && part.length > 0);
+  return parts.join(" / ") || null;
 }
 
 export class GeoIpService {
@@ -44,7 +63,9 @@ export class GeoIpService {
   lookupIp(ip: string | null): string {
     if (!ip) return "Unknown";
     if (net.isIP(ip) !== 4) return "Unknown";
-    if (ip.startsWith("10.") || ip.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) || ip.startsWith("127.")) return "Private";
+    if (isPrivateIp(ip)) return "Private";
+    const detailed = formatGeo(ip);
+    if (detailed) return detailed;
     const value = ipv4ToInt(ip);
     if (value == null) return "Unknown";
     const match = this.entries.find((entry) => (value & entry.mask) === entry.base);

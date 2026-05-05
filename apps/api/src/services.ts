@@ -1,32 +1,32 @@
 import type { SubscriptionSource } from "@proxypanel/shared";
-import { extractVlessUris, parseClashNodes, stableId, vlessToNode, type ProxyNode } from "@proxypanel/shared";
+import { parseClashNodes, parseShareUriNodes, stableId, type ProxyNode } from "@proxypanel/shared";
 import { GeoIpService } from "./geoip.js";
 import { Store } from "./store.js";
 
+const DIRECT_URI_PATTERN = /^(?:vless|vmess|hysteria2|hy2|tuic|anytls|trojan|ss):\/\//i;
+
 async function loadSourceText(source: SubscriptionSource): Promise<string> {
-  if (source.url.trim().startsWith("vless://")) return source.url.trim();
-  const response = await fetch(source.url, { headers: { "user-agent": "ProxyPanel/0.1" } });
+  const input = source.url.trim();
+  if (DIRECT_URI_PATTERN.test(input) || !/^https?:\/\//i.test(input)) return input;
+  const response = await fetch(input, { headers: { "user-agent": "ProxyPanel/0.1" } });
   if (!response.ok) throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
   return response.text();
 }
 
-function inferType(source: SubscriptionSource, text: string): "vless" | "clash" {
-  if (source.type === "vless" || source.type === "clash") return source.type;
-  if (source.url.trim().startsWith("vless://") || text.includes("vless://")) return "vless";
-  return "clash";
+function parseNodes(source: SubscriptionSource, text: string, now: string): ProxyNode[] {
+  if (source.type === "clash") return parseClashNodes(source.id, text, now);
+  if (source.type === "vless") return parseShareUriNodes(source.id, text, now).filter((node) => node.protocol === "vless");
+
+  const shareNodes = parseShareUriNodes(source.id, text, now);
+  if (shareNodes.length > 0) return shareNodes;
+  return parseClashNodes(source.id, text, now);
 }
 
 export async function refreshSource(store: Store, geo: GeoIpService, source: SubscriptionSource): Promise<{ count: number }> {
   try {
     const text = await loadSourceText(source);
-    const type = inferType(source, text);
     const now = new Date().toISOString();
-    let nodes: ProxyNode[] = [];
-    if (type === "vless") {
-      nodes = extractVlessUris(text).map((uri) => vlessToNode(source.id, uri, now));
-    } else {
-      nodes = parseClashNodes(source.id, text, now);
-    }
+    const nodes = parseNodes(source, text, now);
     for (const node of nodes) {
       const resolved = await geo.resolveHost(node.host);
       node.ip = resolved.ip;

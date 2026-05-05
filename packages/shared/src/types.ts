@@ -1,5 +1,5 @@
 export type SubscriptionSourceType = "auto" | "vless" | "clash";
-export type ProxyProtocol = "vless" | "trojan" | "vmess" | "ss" | "http" | "socks5" | "unknown";
+export type ProxyProtocol = "vless" | "trojan" | "vmess" | "ss" | "http" | "socks5" | "hysteria2" | "tuic" | "anytls" | "unknown";
 export type OutputFormat = "clash" | "vless";
 export type SortStrategy = "score" | "latency" | "region" | "name";
 

@@ -103,12 +103,14 @@ export function buildApp(config: AppConfig, store = new Store(config.databasePat
     if (!result) return reply.code(404).send("invalid token");
     return reply.header("content-type", "text/yaml; charset=utf-8").send(exportClash(result.nodes));
   });
-  app.get<{ Params: { token: string } }>("/sub/:token/vless", async (request, reply) => {
-    const result = outputNodes(request.params.token);
+  const sendUriList = async (token: string, reply: import("fastify").FastifyReply) => {
+    const result = outputNodes(token);
     if (!result) return reply.code(404).send("invalid token");
-    const body = result.nodes.filter((node) => node.protocol === "vless" && node.shareUri).map((node) => node.shareUri).join("\n");
+    const body = result.nodes.filter((node) => node.shareUri).map((node) => node.shareUri).join("\n");
     return reply.header("content-type", "text/plain; charset=utf-8").send(body);
-  });
+  };
+  app.get<{ Params: { token: string } }>("/sub/:token/vless", async (request, reply) => sendUriList(request.params.token, reply));
+  app.get<{ Params: { token: string } }>("/sub/:token/uris", async (request, reply) => sendUriList(request.params.token, reply));
 
   if (fs.existsSync(config.webDistPath)) {
     app.register(fastifyStatic, { root: config.webDistPath, prefix: "/" });
