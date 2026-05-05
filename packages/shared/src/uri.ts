@@ -42,6 +42,14 @@ function paramsObject(url: URL): Record<string, string> {
   return Object.fromEntries(Array.from(url.searchParams.entries()));
 }
 
+function parseSsUserInfo(userInfo: string): { method?: string; password?: string } {
+  if (!userInfo) return {};
+  const decoded = userInfo.includes(":") ? userInfo : decodeBase64(userInfo);
+  const idx = decoded.indexOf(":");
+  if (idx <= 0) return { password: decoded };
+  return { method: decoded.slice(0, idx), password: decoded.slice(idx + 1) };
+}
+
 function cleanUri(uri: string): string {
   return uri.trim().replace(/[),.;，。]+$/u, "");
 }
@@ -108,6 +116,7 @@ export function genericUrlToNode(sourceId: string, uri: string, now = new Date()
     raw.network = params.type ?? params.network;
   } else if (protocol === "ss") {
     raw.userinfo = username;
+    Object.assign(raw, parseSsUserInfo(username));
   }
 
   return nowNode(sourceId, protocol, name, host, port, raw, uri, now);

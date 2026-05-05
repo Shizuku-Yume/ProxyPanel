@@ -80,11 +80,24 @@ export class Store {
         include_regions_json TEXT NOT NULL DEFAULT '[]',
         include_source_ids_json TEXT NOT NULL DEFAULT '[]',
         include_tags_json TEXT NOT NULL DEFAULT '[]',
+        include_protocols_json TEXT NOT NULL DEFAULT '[]',
+        max_latency_ms INTEGER,
+        min_success_rate REAL,
+        limit_count INTEGER,
         sort_strategy TEXT NOT NULL DEFAULT 'score',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
+    this.addColumnIfMissing("output_profiles", "include_protocols_json", "TEXT NOT NULL DEFAULT '[]'");
+    this.addColumnIfMissing("output_profiles", "max_latency_ms", "INTEGER");
+    this.addColumnIfMissing("output_profiles", "min_success_rate", "REAL");
+    this.addColumnIfMissing("output_profiles", "limit_count", "INTEGER");
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+    if (!rows.some((row) => row.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
   }
 
   rowToSource(row: Row): SubscriptionSource {
@@ -96,7 +109,23 @@ export class Store {
   }
 
   rowToOutput(row: Row): OutputProfile {
-    return { id: String(row.id), name: String(row.name), token: String(row.token), enabled: bool(row.enabled), format: row.format as OutputProfile["format"], includeRegions: jsonArray(row.include_regions_json), includeSourceIds: jsonArray(row.include_source_ids_json), includeTags: jsonArray(row.include_tags_json), sortStrategy: row.sort_strategy as OutputProfile["sortStrategy"], createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      token: String(row.token),
+      enabled: bool(row.enabled),
+      format: row.format as OutputProfile["format"],
+      includeRegions: jsonArray(row.include_regions_json),
+      includeSourceIds: jsonArray(row.include_source_ids_json),
+      includeTags: jsonArray(row.include_tags_json),
+      includeProtocols: jsonArray(row.include_protocols_json) as OutputProfile["includeProtocols"],
+      maxLatencyMs: row.max_latency_ms == null ? null : Number(row.max_latency_ms),
+      minSuccessRate: row.min_success_rate == null ? null : Number(row.min_success_rate),
+      limit: row.limit_count == null ? null : Number(row.limit_count),
+      sortStrategy: row.sort_strategy as OutputProfile["sortStrategy"],
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at)
+    };
   }
 
   listSources(): SubscriptionSource[] { return this.db.prepare("SELECT * FROM sources ORDER BY created_at DESC").all().map((r) => this.rowToSource(r as Row)); }
@@ -163,14 +192,14 @@ export class Store {
 
   createOutput(input: Omit<OutputProfile, "createdAt" | "updatedAt" | "token"> & { token?: string }): OutputProfile {
     const ts = nowIso(); const token = input.token ?? randomToken();
-    this.db.prepare(`INSERT INTO output_profiles (id,name,token,enabled,format,include_regions_json,include_source_ids_json,include_tags_json,sort_strategy,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(input.id, input.name, token, input.enabled ? 1 : 0, input.format, JSON.stringify(input.includeRegions), JSON.stringify(input.includeSourceIds), JSON.stringify(input.includeTags), input.sortStrategy, ts, ts);
+    this.db.prepare(`INSERT INTO output_profiles (id,name,token,enabled,format,include_regions_json,include_source_ids_json,include_tags_json,include_protocols_json,max_latency_ms,min_success_rate,limit_count,sort_strategy,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.id, input.name, token, input.enabled ? 1 : 0, input.format, JSON.stringify(input.includeRegions), JSON.stringify(input.includeSourceIds), JSON.stringify(input.includeTags), JSON.stringify(input.includeProtocols), input.maxLatencyMs, input.minSuccessRate, input.limit, input.sortStrategy, ts, ts);
     return this.getOutput(input.id)!;
   }
 
   updateOutput(id: string, patch: Partial<Omit<OutputProfile, "id" | "createdAt" | "updatedAt">> & { rotateToken?: boolean }): OutputProfile | null {
     const current = this.getOutput(id); if (!current) return null;
     const next = { ...current, ...patch, token: patch.rotateToken ? randomToken() : (patch.token ?? current.token), updatedAt: nowIso() };
-    this.db.prepare("UPDATE output_profiles SET name=?, token=?, enabled=?, format=?, include_regions_json=?, include_source_ids_json=?, include_tags_json=?, sort_strategy=?, updated_at=? WHERE id=?").run(next.name, next.token, next.enabled ? 1 : 0, next.format, JSON.stringify(next.includeRegions), JSON.stringify(next.includeSourceIds), JSON.stringify(next.includeTags), next.sortStrategy, next.updatedAt, id);
+    this.db.prepare("UPDATE output_profiles SET name=?, token=?, enabled=?, format=?, include_regions_json=?, include_source_ids_json=?, include_tags_json=?, include_protocols_json=?, max_latency_ms=?, min_success_rate=?, limit_count=?, sort_strategy=?, updated_at=? WHERE id=?").run(next.name, next.token, next.enabled ? 1 : 0, next.format, JSON.stringify(next.includeRegions), JSON.stringify(next.includeSourceIds), JSON.stringify(next.includeTags), JSON.stringify(next.includeProtocols), next.maxLatencyMs, next.minSuccessRate, next.limit, next.sortStrategy, next.updatedAt, id);
     return this.getOutput(id);
   }
 
@@ -181,6 +210,9 @@ export class Store {
     if (profile.includeRegions.length) nodes = nodes.filter((node) => profile.includeRegions.includes(node.region));
     if (profile.includeSourceIds.length) nodes = nodes.filter((node) => profile.includeSourceIds.includes(node.sourceId));
     if (profile.includeTags.length) nodes = nodes.filter((node) => node.tags.some((tag) => profile.includeTags.includes(tag)));
+    if (profile.includeProtocols.length) nodes = nodes.filter((node) => profile.includeProtocols.includes(node.protocol));
+    if (profile.maxLatencyMs != null) nodes = nodes.filter((node) => node.lastLatencyMs != null && node.lastLatencyMs <= profile.maxLatencyMs!);
+    if (profile.minSuccessRate != null) nodes = nodes.filter((node) => node.successRate >= profile.minSuccessRate!);
     const byFingerprint = new Map<string, ProxyNode>();
     for (const node of nodes) {
       const existing = byFingerprint.get(node.fingerprint);
@@ -191,9 +223,11 @@ export class Store {
       case "latency": nodes.sort((a, b) => (a.lastLatencyMs ?? Number.MAX_SAFE_INTEGER) - (b.lastLatencyMs ?? Number.MAX_SAFE_INTEGER)); break;
       case "region": nodes.sort((a, b) => a.region.localeCompare(b.region) || b.score - a.score); break;
       case "name": nodes.sort((a, b) => a.name.localeCompare(b.name)); break;
+      case "successRate": nodes.sort((a, b) => b.successRate - a.successRate || (a.lastLatencyMs ?? 999999) - (b.lastLatencyMs ?? 999999)); break;
+      case "random": nodes.sort(() => Math.random() - 0.5); break;
       default: nodes.sort((a, b) => b.score - a.score || (a.lastLatencyMs ?? 999999) - (b.lastLatencyMs ?? 999999));
     }
-    return nodes;
+    return profile.limit != null ? nodes.slice(0, profile.limit) : nodes;
   }
 
   stats(): DashboardStats {

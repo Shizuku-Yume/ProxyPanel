@@ -15,8 +15,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || response.statusText);
+    const body = await response.text();
+    let message = body || response.statusText;
+    try {
+      const parsed = JSON.parse(body) as { message?: string; error?: string };
+      message = parsed.message || parsed.error || message;
+    } catch { /* keep raw body */ }
+    throw new Error(message);
   }
 
   const text = await response.text();
@@ -30,7 +35,7 @@ export const api = {
   createSource: (body: Partial<SubscriptionSource>) => request<SubscriptionSource>("/api/sources", { method: "POST", body: JSON.stringify(body) }),
   patchSource: (id: string, body: Partial<SubscriptionSource>) => request<SubscriptionSource>(`/api/sources/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteSource: (id: string) => request<{ ok: boolean }>(`/api/sources/${id}`, { method: "DELETE" }),
-  refreshSource: (id: string) => request<{ ok: boolean; count: number }>(`/api/sources/${id}/refresh`, { method: "POST" }),
+  refreshSource: (id: string) => request<{ ok: boolean; count: number; added: number; updated: number; skipped: number; protocols: Record<string, number> }>(`/api/sources/${id}/refresh`, { method: "POST" }),
   nodes: () => request<ProxyNode[]>("/api/nodes"),
   patchNode: (id: string, body: Partial<ProxyNode>) => request<ProxyNode>(`/api/nodes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   probeNodes: () => request<{ ok: boolean; count: number }>("/api/nodes/probe", { method: "POST" }),

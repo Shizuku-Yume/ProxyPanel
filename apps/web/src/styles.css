@@ -5,6 +5,7 @@ main { width: min(1280px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 5
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 h1, h2, p { margin: 0; }
 header p, small, .output span { color: #94a3b8; }
+.notice { color: #bbf7d0; background: rgba(22, 101, 52, .35); border: 1px solid #15803d; padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; }
 button, input, select { border: 1px solid #31405f; border-radius: 10px; background: #11182b; color: #e7edf8; padding: 9px 12px; }
 button { cursor: pointer; background: #2563eb; border-color: #3b82f6; font-weight: 700; }
 button:hover { filter: brightness(1.1); }
@@ -32,8 +33,13 @@ td button { margin-right: 6px; margin-bottom: 4px; padding: 7px 9px; }
 .output-list { display: grid; gap: 12px; }
 .output { border: 1px solid #263653; border-radius: 14px; padding: 14px; display: grid; gap: 12px; }
 .links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.link-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) 76px; gap: 8px; align-items: center; }
+.link-row label { display: grid; gap: 3px; }
+.link-row input { min-width: 0; }
 .actions { display: flex; gap: 8px; }
 .filters { display: flex; flex-wrap: wrap; gap: 14px; color: #cbd5e1; }
 .filters details { min-width: 180px; }
 .filters label { display: block; margin: 6px 0; }
-@media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } .grid-form, .links { grid-template-columns: 1fr; } header { align-items: flex-start; } }
+.filters > label { display: grid; gap: 5px; min-width: 130px; }
+.filters input[type="checkbox"] { margin-right: 6px; }
+@media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } .grid-form, .links, .link-row { grid-template-columns: 1fr; } header { align-items: flex-start; } }

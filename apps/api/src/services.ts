@@ -22,20 +22,26 @@ function parseNodes(source: SubscriptionSource, text: string, now: string): Prox
   return parseClashNodes(source.id, text, now);
 }
 
-export async function refreshSource(store: Store, geo: GeoIpService, source: SubscriptionSource): Promise<{ count: number }> {
+export async function refreshSource(store: Store, geo: GeoIpService, source: SubscriptionSource): Promise<{ count: number; added: number; updated: number; skipped: number; protocols: Record<string, number> }> {
   try {
     const text = await loadSourceText(source);
     const now = new Date().toISOString();
     const nodes = parseNodes(source, text, now);
+    const protocols: Record<string, number> = {};
+    let added = 0;
+    let updated = 0;
     for (const node of nodes) {
+      protocols[node.protocol] = (protocols[node.protocol] ?? 0) + 1;
       const resolved = await geo.resolveHost(node.host);
       node.ip = resolved.ip;
       node.region = resolved.region;
       node.id = stableId(`${source.id}:${node.fingerprint}`);
+      const existed = store.getNode(node.id) != null;
       store.upsertNode(node);
+      if (existed) updated += 1; else added += 1;
     }
     store.updateSource(source.id, { lastRefreshAt: now, lastError: null });
-    return { count: nodes.length };
+    return { count: nodes.length, added, updated, skipped: 0, protocols };
   } catch (error) {
     store.updateSource(source.id, { lastError: error instanceof Error ? error.message : String(error) });
     throw error;

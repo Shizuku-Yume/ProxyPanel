@@ -1,7 +1,7 @@
 export type SubscriptionSourceType = "auto" | "vless" | "clash";
 export type ProxyProtocol = "vless" | "trojan" | "vmess" | "ss" | "http" | "socks5" | "hysteria2" | "tuic" | "anytls" | "unknown";
-export type OutputFormat = "clash" | "vless";
-export type SortStrategy = "score" | "latency" | "region" | "name";
+export type OutputFormat = "clash" | "uris" | "vless" | "sing-box";
+export type SortStrategy = "score" | "latency" | "region" | "name" | "successRate" | "random";
 
 export interface SubscriptionSource {
   id: string;
@@ -57,6 +57,10 @@ export interface OutputProfile {
   includeRegions: string[];
   includeSourceIds: string[];
   includeTags: string[];
+  includeProtocols: ProxyProtocol[];
+  maxLatencyMs: number | null;
+  minSuccessRate: number | null;
+  limit: number | null;
   sortStrategy: SortStrategy;
   createdAt: string;
   updatedAt: string;

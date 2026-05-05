@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exportClash } from "../clash.js";
+import { exportSingBox } from "../singbox.js";
 import { extractProxyUris, parseShareUriNodes, vmessUriToNode } from "../uri.js";
 
 const vmess = "vmess://eyJhZGQiOiJnY3Bwcm94eS5zaGl6dWt1eXVtZS5kcGRucy5vcmciLCJhaWQiOiIwIiwiaG9zdCI6ImdjcHByb3h5LnNoaXp1a3V5dW1lLmRwZG5zLm9yZyIsImlkIjoiYzU0MjEyYWYtNTgxMi00YjM3LThjODEtZTkxZDQ4YWI1NWY5IiwibmV0Ijoid3MiLCJwYXRoIjoiYzU0MjEyYWYtNTgxMi00YjM3LThjODEtZTkxZDQ4YWI1NWY5LXZtIiwicG9ydCI6IjIwODMiLCJwcyI6InZtLXdzLXRscy1wcm94eSIsInRscyI6InRscyIsInNuaSI6ImdjcHByb3h5LnNoaXp1a3V5dW1lLmRwZG5zLm9yZyIsImZwIjoiY2hyb21lIiwidHlwZSI6Im5vbmUiLCJ2IjoiMiJ9Cg==";
@@ -31,5 +32,22 @@ describe("mixed share URI parsing", () => {
     expect(yaml).toContain("type: hysteria2");
     expect(yaml).toContain("type: tuic");
     expect(yaml).toContain("type: anytls");
+    expect(yaml).toContain("udp: true");
+    expect(yaml).toContain("skip-cert-verify: false");
+  });
+});
+
+
+describe("sing-box export", () => {
+  it("exports parsed share URI nodes to sing-box JSON", () => {
+    const nodes = parseShareUriNodes("source-1", `${vmess}
+${hy2}
+${tuic}
+${anytls}`);
+    const config = JSON.parse(exportSingBox(nodes)) as { outbounds: Array<{ type: string; tag: string }> };
+    expect(config.outbounds.some((outbound) => outbound.type === "selector" && outbound.tag === "ProxyPanel-Select")).toBe(true);
+    expect(config.outbounds.some((outbound) => outbound.type === "hysteria2")).toBe(true);
+    expect(config.outbounds.some((outbound) => outbound.type === "tuic")).toBe(true);
+    expect(config.outbounds.some((outbound) => outbound.type === "anytls")).toBe(true);
   });
 });

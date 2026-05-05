@@ -59,7 +59,8 @@ describe("source API", () => {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }
     });
     expect(refreshed.statusCode).toBe(200);
-    expect(refreshed.json<{ count: number }>().count).toBe(1);
+    expect(refreshed.json<{ count: number; added: number; protocols: Record<string, number> }>().count).toBe(1);
+    expect(refreshed.json<{ protocols: Record<string, number> }>().protocols.vless).toBe(1);
 
     const nodes = await app.inject({ method: "GET", url: "/api/nodes", headers: { authorization: `Bearer ${token}` } });
     expect(nodes.json<unknown[]>()).toHaveLength(1);
@@ -91,5 +92,38 @@ describe("source API", () => {
 
     const nodes = await app.inject({ method: "GET", url: "/api/nodes", headers: { authorization: `Bearer ${token}` } });
     expect(nodes.json<Array<{ protocol: string }>>().map((node) => node.protocol).sort()).toEqual(["anytls", "hysteria2", "tuic", "vmess"]);
+  });
+
+  it("serves URI, legacy VLESS, Clash and sing-box subscription outputs", async () => {
+    const app = buildApp(testConfig());
+    apps.push(app);
+    const token = await loginToken(app);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/sources",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "aggregate", url: aggregateSample, type: "auto", enabled: true, refreshIntervalMinutes: 60 }
+    });
+    const sourceId = created.json<{ id: string }>().id;
+    await app.inject({ method: "POST", url: `/api/sources/${sourceId}/refresh`, headers: { authorization: `Bearer ${token}` } });
+
+    const output = await app.inject({
+      method: "POST",
+      url: "/api/output-profiles",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "default", enabled: true, format: "clash", includeRegions: [], includeSourceIds: [], includeTags: [], includeProtocols: ["vmess"], maxLatencyMs: null, minSuccessRate: null, limit: null, sortStrategy: "score" }
+    });
+    const outputToken = output.json<{ token: string }>().token;
+
+    const uris = await app.inject({ method: "GET", url: `/sub/${outputToken}/uris` });
+    expect(uris.body).toContain("vmess://");
+    const legacy = await app.inject({ method: "GET", url: `/sub/${outputToken}/vless` });
+    expect(legacy.body).toBe(uris.body);
+    const clash = await app.inject({ method: "GET", url: `/sub/${outputToken}/clash` });
+    expect(clash.body).toContain("type: vmess");
+    const singbox = await app.inject({ method: "GET", url: `/sub/${outputToken}/sing-box` });
+    expect(singbox.headers["content-type"]).toContain("application/json");
+    expect(JSON.parse(singbox.body).outbounds.some((outbound: { type: string }) => outbound.type === "vmess")).toBe(true);
   });
 });

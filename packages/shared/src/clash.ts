@@ -14,6 +14,9 @@ interface ClashProxy {
   network?: string;
   sni?: string;
   servername?: string;
+  udp?: boolean;
+  flow?: string;
+  alpn?: string | string[];
   [key: string]: unknown;
 }
 
@@ -63,7 +66,46 @@ export function parseClashNodes(sourceId: string, text: string, now = new Date()
 
 
 function compact<T extends Record<string, unknown>>(input: T): T {
-  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== "")) as T;
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== "" && value !== null)) as T;
+}
+
+function boolish(value: unknown): boolean {
+  return value === true || value === "1" || value === 1 || value === "true";
+}
+
+function rawString(node: ProxyNode, ...keys: string[]): unknown {
+  for (const key of keys) {
+    const value = node.raw[key];
+    if (value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
+function network(node: ProxyNode): string {
+  return String(rawString(node, "network", "type") ?? "tcp");
+}
+
+function tlsEnabled(node: ProxyNode): boolean {
+  return node.raw.security === "tls" || node.raw.security === "reality" || boolish(node.raw.tls);
+}
+
+function wsOpts(node: ProxyNode): Record<string, unknown> | undefined {
+  return network(node) === "ws" ? { path: rawString(node, "path") ?? "/", headers: compact({ Host: rawString(node, "host") }) } : undefined;
+}
+
+function grpcOpts(node: ProxyNode): Record<string, unknown> | undefined {
+  return network(node) === "grpc" ? compact({ "grpc-service-name": rawString(node, "serviceName", "service-name") }) : undefined;
+}
+
+function realityOpts(node: ProxyNode): Record<string, unknown> | undefined {
+  if (node.raw.security !== "reality") return undefined;
+  const existing = node.raw["reality-opts"];
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  return compact({ "public-key": rawString(node, "pbk"), "short-id": rawString(node, "sid") });
+}
+
+function skipCertVerify(node: ProxyNode): boolean {
+  return boolish(node.raw.insecure) || boolish(node.raw.allowInsecure) || boolish(node.raw["skip-cert-verify"]);
 }
 
 export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | null {
@@ -74,10 +116,17 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       server: node.host,
       port: node.port,
       uuid: node.raw.uuid,
-      tls: node.raw.security === "tls" || node.raw.security === "reality" || Boolean(node.raw.tls),
-      servername: node.raw.sni ?? node.raw.servername,
-      network: node.raw.type ?? node.raw.network ?? "tcp",
-      "skip-cert-verify": Boolean(node.raw["skip-cert-verify"] ?? false)
+      tls: tlsEnabled(node),
+      servername: rawString(node, "sni", "servername"),
+      network: network(node),
+      udp: node.raw.udp ?? true,
+      flow: node.raw.flow,
+      alpn: node.raw.alpn,
+      "client-fingerprint": rawString(node, "fp", "client-fingerprint"),
+      "skip-cert-verify": skipCertVerify(node),
+      "ws-opts": wsOpts(node),
+      "grpc-opts": grpcOpts(node),
+      "reality-opts": realityOpts(node)
     });
   }
   if (node.protocol === "vmess" && node.raw.uuid) {
@@ -89,10 +138,15 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       uuid: node.raw.uuid,
       alterId: node.raw.alterId ?? 0,
       cipher: node.raw.cipher ?? "auto",
-      tls: Boolean(node.raw.tls),
-      servername: node.raw.sni ?? node.raw.servername,
-      network: node.raw.network ?? "tcp",
-      "ws-opts": node.raw.network === "ws" ? { path: node.raw.path ?? "/", headers: compact({ Host: node.raw.host }) } : undefined
+      tls: tlsEnabled(node),
+      servername: rawString(node, "sni", "servername"),
+      network: network(node),
+      udp: node.raw.udp ?? true,
+      alpn: node.raw.alpn,
+      "client-fingerprint": rawString(node, "fp", "client-fingerprint"),
+      "skip-cert-verify": skipCertVerify(node),
+      "ws-opts": wsOpts(node),
+      "grpc-opts": grpcOpts(node)
     });
   }
   if (node.protocol === "hysteria2") {
@@ -104,7 +158,8 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       password: node.raw.password,
       sni: node.raw.sni,
       alpn: node.raw.alpn,
-      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+      udp: node.raw.udp ?? true,
+      "skip-cert-verify": skipCertVerify(node)
     });
   }
   if (node.protocol === "tuic") {
@@ -117,9 +172,10 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       password: node.raw.password,
       sni: node.raw.sni,
       alpn: node.raw.alpn,
+      udp: node.raw.udp ?? true,
       "congestion-controller": node.raw["congestion-controller"] ?? "bbr",
       "udp-relay-mode": node.raw["udp-relay-mode"] ?? "native",
-      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+      "skip-cert-verify": skipCertVerify(node)
     });
   }
   if (node.protocol === "anytls") {
@@ -130,7 +186,9 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       port: node.port,
       password: node.raw.password,
       sni: node.raw.sni,
-      "skip-cert-verify": node.raw.insecure === "1" || node.raw.allowInsecure === "1" || node.raw["skip-cert-verify"] === true
+      alpn: node.raw.alpn,
+      udp: node.raw.udp ?? true,
+      "skip-cert-verify": skipCertVerify(node)
     });
   }
   const raw = { ...node.raw };

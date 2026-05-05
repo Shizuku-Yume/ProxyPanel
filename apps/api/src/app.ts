@@ -3,7 +3,7 @@ import path from "node:path";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
-import { exportClash, outputProfileInputSchema, outputProfilePatchSchema, randomToken, subscriptionSourceInputSchema, subscriptionSourcePatchSchema, nodePatchSchema, stableId } from "@proxypanel/shared";
+import { exportClash, exportSingBox, outputProfileInputSchema, outputProfilePatchSchema, randomToken, subscriptionSourceInputSchema, subscriptionSourcePatchSchema, nodePatchSchema, stableId } from "@proxypanel/shared";
 import type { ProxyNode } from "@proxypanel/shared";
 import { authPreHandler, createSession, safePasswordEquals } from "./auth.js";
 import type { AppConfig } from "./config.js";
@@ -57,8 +57,13 @@ export function buildApp(config: AppConfig, store = new Store(config.databasePat
   app.post<{ Params: { id: string } }>("/api/sources/:id/refresh", { preHandler: authenticate }, async (request, reply) => {
     const source = store.getSource(request.params.id);
     if (!source) return reply.code(404).send({ error: "not_found", message: "Source not found" });
-    const result = await refreshSource(store, geo, source);
-    return { ok: true, ...result };
+    try {
+      const result = await refreshSource(store, geo, source);
+      return { ok: true, ...result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "refresh_failed", message, sourceId: source.id, sourceName: source.name });
+    }
   });
 
   app.get("/api/nodes", { preHandler: authenticate }, async () => store.listNodes());
@@ -102,6 +107,11 @@ export function buildApp(config: AppConfig, store = new Store(config.databasePat
     const result = outputNodes(request.params.token);
     if (!result) return reply.code(404).send("invalid token");
     return reply.header("content-type", "text/yaml; charset=utf-8").send(exportClash(result.nodes));
+  });
+  app.get<{ Params: { token: string } }>("/sub/:token/sing-box", async (request, reply) => {
+    const result = outputNodes(request.params.token);
+    if (!result) return reply.code(404).send("invalid token");
+    return reply.header("content-type", "application/json; charset=utf-8").send(exportSingBox(result.nodes));
   });
   const sendUriList = async (token: string, reply: import("fastify").FastifyReply) => {
     const result = outputNodes(token);
