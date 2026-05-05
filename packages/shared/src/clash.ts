@@ -64,7 +64,6 @@ export function parseClashNodes(sourceId: string, text: string, now = new Date()
   return parseClashYaml(text).map((proxy) => clashProxyToNode(sourceId, proxy, now)).filter((node): node is ProxyNode => node != null);
 }
 
-
 function compact<T extends Record<string, unknown>>(input: T): T {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== "" && value !== null)) as T;
 }
@@ -81,31 +80,77 @@ function rawString(node: ProxyNode, ...keys: string[]): unknown {
   return undefined;
 }
 
+function rawBool(node: ProxyNode, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = node.raw[key];
+    if (value !== undefined && value !== "") return boolish(value);
+  }
+  return undefined;
+}
+
 function network(node: ProxyNode): string {
-  return String(rawString(node, "network", "type") ?? "tcp");
+  const raw = String(rawString(node, "network", "type") ?? "tcp").toLowerCase();
+  if (raw === "httpupgrade") return "http-upgrade";
+  return raw || "tcp";
 }
 
 function tlsEnabled(node: ProxyNode): boolean {
-  return node.raw.security === "tls" || node.raw.security === "reality" || boolish(node.raw.tls);
+  return node.raw.security === "tls" || node.raw.security === "reality" || boolish(node.raw.tls) || node.protocol === "hysteria2" || node.protocol === "tuic" || node.protocol === "anytls";
 }
 
 function wsOpts(node: ProxyNode): Record<string, unknown> | undefined {
-  return network(node) === "ws" ? { path: rawString(node, "path") ?? "/", headers: compact({ Host: rawString(node, "host") }) } : undefined;
+  if (network(node) !== "ws") return undefined;
+  const existing = node.raw["ws-opts"];
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  return compact({ path: rawString(node, "path") ?? "/", headers: compact({ Host: rawString(node, "host") }) });
 }
 
 function grpcOpts(node: ProxyNode): Record<string, unknown> | undefined {
-  return network(node) === "grpc" ? compact({ "grpc-service-name": rawString(node, "serviceName", "service-name") }) : undefined;
+  if (network(node) !== "grpc") return undefined;
+  const existing = node.raw["grpc-opts"];
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  return compact({ "grpc-service-name": rawString(node, "serviceName", "service-name", "grpc-service-name") });
+}
+
+function h2Opts(node: ProxyNode): Record<string, unknown> | undefined {
+  if (network(node) !== "h2") return undefined;
+  const existing = node.raw["h2-opts"];
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  const host = rawString(node, "host");
+  return compact({ path: rawString(node, "path") ?? "/", host: typeof host === "string" ? [host] : host });
+}
+
+function httpUpgradeOpts(node: ProxyNode): Record<string, unknown> | undefined {
+  if (network(node) !== "http-upgrade") return undefined;
+  const existing = node.raw["http-upgrade-opts"];
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  return compact({ path: rawString(node, "path") ?? "/", headers: compact({ Host: rawString(node, "host") }) });
 }
 
 function realityOpts(node: ProxyNode): Record<string, unknown> | undefined {
   if (node.raw.security !== "reality") return undefined;
   const existing = node.raw["reality-opts"];
   if (existing && typeof existing === "object") return existing as Record<string, unknown>;
-  return compact({ "public-key": rawString(node, "pbk"), "short-id": rawString(node, "sid") });
+  return compact({ "public-key": rawString(node, "pbk", "public-key"), "short-id": rawString(node, "sid", "short-id") });
 }
 
 function skipCertVerify(node: ProxyNode): boolean {
   return boolish(node.raw.insecure) || boolish(node.raw.allowInsecure) || boolish(node.raw["skip-cert-verify"]);
+}
+
+function alpn(node: ProxyNode): unknown {
+  const value = rawString(node, "alpn");
+  return typeof value === "string" && value.includes(",") ? value.split(",").map((item) => item.trim()).filter(Boolean) : value;
+}
+
+function commonTlsFields(node: ProxyNode): Record<string, unknown> {
+  return {
+    tls: tlsEnabled(node),
+    servername: rawString(node, "sni", "servername"),
+    alpn: alpn(node),
+    "client-fingerprint": rawString(node, "fp", "client-fingerprint"),
+    "skip-cert-verify": skipCertVerify(node)
+  };
 }
 
 export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | null {
@@ -116,16 +161,14 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       server: node.host,
       port: node.port,
       uuid: node.raw.uuid,
-      tls: tlsEnabled(node),
-      servername: rawString(node, "sni", "servername"),
+      ...commonTlsFields(node),
       network: network(node),
       udp: node.raw.udp ?? true,
       flow: node.raw.flow,
-      alpn: node.raw.alpn,
-      "client-fingerprint": rawString(node, "fp", "client-fingerprint"),
-      "skip-cert-verify": skipCertVerify(node),
       "ws-opts": wsOpts(node),
       "grpc-opts": grpcOpts(node),
+      "h2-opts": h2Opts(node),
+      "http-upgrade-opts": httpUpgradeOpts(node),
       "reality-opts": realityOpts(node)
     });
   }
@@ -138,15 +181,41 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       uuid: node.raw.uuid,
       alterId: node.raw.alterId ?? 0,
       cipher: node.raw.cipher ?? "auto",
-      tls: tlsEnabled(node),
-      servername: rawString(node, "sni", "servername"),
+      ...commonTlsFields(node),
       network: network(node),
       udp: node.raw.udp ?? true,
-      alpn: node.raw.alpn,
-      "client-fingerprint": rawString(node, "fp", "client-fingerprint"),
-      "skip-cert-verify": skipCertVerify(node),
       "ws-opts": wsOpts(node),
-      "grpc-opts": grpcOpts(node)
+      "grpc-opts": grpcOpts(node),
+      "h2-opts": h2Opts(node),
+      "http-upgrade-opts": httpUpgradeOpts(node)
+    });
+  }
+  if (node.protocol === "trojan") {
+    return compact({
+      name: node.name,
+      type: "trojan",
+      server: node.host,
+      port: node.port,
+      password: node.raw.password,
+      ...commonTlsFields(node),
+      network: network(node),
+      udp: node.raw.udp ?? true,
+      "ws-opts": wsOpts(node),
+      "grpc-opts": grpcOpts(node),
+      "h2-opts": h2Opts(node)
+    });
+  }
+  if (node.protocol === "ss") {
+    return compact({
+      name: node.name,
+      type: "ss",
+      server: node.host,
+      port: node.port,
+      cipher: node.raw.method ?? node.raw.cipher,
+      password: node.raw.password,
+      udp: node.raw.udp ?? true,
+      plugin: node.raw.plugin,
+      "plugin-opts": node.raw["plugin-opts"]
     });
   }
   if (node.protocol === "hysteria2") {
@@ -156,8 +225,10 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       server: node.host,
       port: node.port,
       password: node.raw.password,
-      sni: node.raw.sni,
-      alpn: node.raw.alpn,
+      sni: rawString(node, "sni", "servername"),
+      alpn: alpn(node),
+      obfs: node.raw.obfs,
+      "obfs-password": rawString(node, "obfs-password", "obfs_password"),
       udp: node.raw.udp ?? true,
       "skip-cert-verify": skipCertVerify(node)
     });
@@ -170,11 +241,12 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       port: node.port,
       uuid: node.raw.uuid,
       password: node.raw.password,
-      sni: node.raw.sni,
-      alpn: node.raw.alpn,
+      sni: rawString(node, "sni", "servername"),
+      alpn: alpn(node),
       udp: node.raw.udp ?? true,
-      "congestion-controller": node.raw["congestion-controller"] ?? "bbr",
-      "udp-relay-mode": node.raw["udp-relay-mode"] ?? "native",
+      "congestion-controller": rawString(node, "congestion-controller", "congestion_control") ?? "bbr",
+      "udp-relay-mode": rawString(node, "udp-relay-mode", "udp_relay_mode") ?? "native",
+      "disable-sni": rawBool(node, "disable-sni", "disable_sni"),
       "skip-cert-verify": skipCertVerify(node)
     });
   }
@@ -185,10 +257,22 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
       server: node.host,
       port: node.port,
       password: node.raw.password,
-      sni: node.raw.sni,
-      alpn: node.raw.alpn,
+      sni: rawString(node, "sni", "servername"),
+      alpn: alpn(node),
       udp: node.raw.udp ?? true,
       "skip-cert-verify": skipCertVerify(node)
+    });
+  }
+  if (node.protocol === "http" || node.protocol === "socks5") {
+    return compact({
+      name: node.name,
+      type: node.protocol,
+      server: node.host,
+      port: node.port,
+      username: rawString(node, "username"),
+      password: rawString(node, "password"),
+      tls: tlsEnabled(node) || undefined,
+      "skip-cert-verify": skipCertVerify(node) || undefined
     });
   }
   const raw = { ...node.raw };
@@ -203,6 +287,7 @@ export function nodeToClashProxy(node: ProxyNode): Record<string, unknown> | nul
 
 export function exportClash(nodes: ProxyNode[]): string {
   const proxies = nodes.map(nodeToClashProxy).filter((proxy): proxy is Record<string, unknown> => proxy != null);
+  const names = proxies.map((p) => String(p.name));
   return yaml.dump({
     port: 7890,
     "socks-port": 7891,
@@ -211,10 +296,9 @@ export function exportClash(nodes: ProxyNode[]): string {
     "log-level": "info",
     proxies,
     "proxy-groups": [
-      { name: "ProxyPanel-Auto", type: "url-test", proxies: proxies.map((p) => p.name), url: "https://www.gstatic.com/generate_204", interval: 300 },
-      { name: "ProxyPanel-Select", type: "select", proxies: ["ProxyPanel-Auto", ...proxies.map((p) => p.name)] }
+      { name: "ProxyPanel-Auto", type: "url-test", proxies: names, url: "https://www.gstatic.com/generate_204", interval: 300 },
+      { name: "ProxyPanel-Select", type: "select", proxies: ["ProxyPanel-Auto", ...names] }
     ],
     rules: ["MATCH,ProxyPanel-Select"]
   }, { lineWidth: 160 });
 }
-

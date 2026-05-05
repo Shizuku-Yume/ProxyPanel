@@ -38,6 +38,7 @@ export const api = {
   refreshSource: (id: string) => request<{ ok: boolean; count: number; added: number; updated: number; skipped: number; protocols: Record<string, number> }>(`/api/sources/${id}/refresh`, { method: "POST" }),
   nodes: () => request<ProxyNode[]>("/api/nodes"),
   patchNode: (id: string, body: Partial<ProxyNode>) => request<ProxyNode>(`/api/nodes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  bulkPatchNodes: (ids: string[], enabled: boolean) => request<{ ok: boolean; updated: number }>("/api/nodes/bulk", { method: "POST", body: JSON.stringify({ ids, enabled }) }),
   probeNodes: () => request<{ ok: boolean; count: number }>("/api/nodes/probe", { method: "POST" }),
   outputs: () => request<OutputProfile[]>("/api/output-profiles"),
   createOutput: (body: Partial<OutputProfile>) => request<OutputProfile>("/api/output-profiles", { method: "POST", body: JSON.stringify(body) }),

@@ -72,6 +72,15 @@ export function buildApp(config: AppConfig, store = new Store(config.databasePat
     const node = store.updateNode(request.params.id, input);
     return node ?? reply.code(404).send({ error: "not_found", message: "Node not found" });
   });
+  app.post<{ Body: { ids?: string[]; enabled?: boolean } }>("/api/nodes/bulk", { preHandler: authenticate }, async (request) => {
+    const ids = Array.isArray(request.body?.ids) ? request.body.ids.map(String) : [];
+    const enabled = Boolean(request.body?.enabled);
+    let updated = 0;
+    for (const id of ids) {
+      if (store.updateNode(id, { enabled })) updated += 1;
+    }
+    return { ok: true, updated };
+  });
   app.post("/api/nodes/probe", { preHandler: authenticate }, async () => {
     const nodes = store.listNodes().filter((node) => node.enabled);
     const results = [];
