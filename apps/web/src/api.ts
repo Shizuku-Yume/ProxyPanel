@@ -7,19 +7,20 @@ export function setToken(token: string | null): void { token ? localStorage.setI
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init.headers ?? {})
-    }
-  });
+  const headers = new Headers(init.headers);
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  if (init.body != null && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
+  const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || response.statusText);
   }
-  return response.json() as Promise<T>;
+
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {

@@ -14,6 +14,16 @@ import { Store } from "./store.js";
 
 export function buildApp(config: AppConfig, store = new Store(config.databasePath), geo = new GeoIpService(config.geoipDbPath)) {
   const app = Fastify({ logger: true });
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
+    const text = String(body ?? "").trim();
+    if (!text) return done(null, {});
+    try { return done(null, JSON.parse(text) as unknown); } catch (error) { return done(error as Error); }
+  });
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => {
+    const text = String(body ?? "");
+    return done(null, Object.fromEntries(new URLSearchParams(text)));
+  });
   const probeProvider = new TcpTlsProbeProvider(config.probeTimeoutMs);
   const authenticate = authPreHandler(config);
 
