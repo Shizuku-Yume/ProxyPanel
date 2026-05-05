@@ -1,0 +1,26 @@
+{
+  "name": "proxypanel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @proxypanel/shared && npm-run-all --parallel dev:shared dev:api dev:web",
+    "dev:api": "npm run dev -w @proxypanel/api",
+    "dev:web": "npm run dev -w @proxypanel/web",
+    "build": "npm run build -w @proxypanel/shared && npm run build -w @proxypanel/api && npm run build -w @proxypanel/web",
+    "test": "npm run test -w @proxypanel/shared && npm run test -w @proxypanel/api",
+    "typecheck": "npm run build -w @proxypanel/shared && npm run typecheck -w @proxypanel/api && npm run typecheck -w @proxypanel/web",
+    "lint": "npm run typecheck",
+    "dev:shared": "npm run dev -w @proxypanel/shared"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
