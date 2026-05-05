@@ -7,7 +7,7 @@ import "./styles.css";
 const PROTOCOLS: ProxyProtocol[] = ["vless", "vmess", "hysteria2", "tuic", "anytls", "trojan", "ss", "http", "socks5"];
 
 type RefreshSummary = { sourceId: string; message: string; ok: boolean };
-type IconName = "activity" | "database" | "globe" | "layers" | "link" | "lock" | "logOut" | "nodes" | "refresh" | "search" | "settings" | "shield" | "spark" | "copy" | "plus";
+type IconName = "activity" | "database" | "globe" | "layers" | "link" | "lock" | "logOut" | "nodes" | "refresh" | "search" | "settings" | "shield" | "spark" | "copy" | "plus" | "sun" | "moon";
 
 function fmt(value: string | null | undefined): string { return value ? new Date(value).toLocaleString() : "-"; }
 function baseUrl(): string { return window.location.origin; }
@@ -29,7 +29,9 @@ function Icon({ name }: { name: IconName }) {
     shield: <><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.68 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z" /></>,
     spark: <><path d="M12 3 9.7 9.7 3 12l6.7 2.3L12 21l2.3-6.7L21 12l-6.7-2.3L12 3Z" /></>,
     copy: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
-    plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>
+    plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></>,
+    moon: <><path d="M20.99 12.36A9 9 0 1 1 11.64 3a7 7 0 0 0 9.35 9.36Z" /></>
   };
   return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -194,6 +196,13 @@ function ProfileFilters({ profile, sources, regions, reload }: { profile: Output
   return <div className="filters"><label className="field">默认格式<select value={profile.format} onChange={(e) => api.patchOutput(profile.id, { format: e.target.value as OutputProfile["format"] }).then(reload)}><option value="clash">Clash</option><option value="uris">URI</option><option value="sing-box">Sing-box</option><option value="vless">Legacy VLESS</option></select></label><label className="field">排序<select value={profile.sortStrategy} onChange={(e) => api.patchOutput(profile.id, { sortStrategy: e.target.value as OutputProfile["sortStrategy"] }).then(reload)}><option value="score">评分</option><option value="latency">延迟</option><option value="successRate">成功率</option><option value="region">地区</option><option value="name">名称</option><option value="random">随机</option></select></label><label className="field">延迟上限(ms)<input type="number" min="1" value={profile.maxLatencyMs ?? ""} onChange={(e) => updateNumber("maxLatencyMs", e.target.value)} placeholder="不限" /></label><label className="field">成功率下限(0-1)<input type="number" min="0" max="1" step="0.05" value={profile.minSuccessRate ?? ""} onChange={(e) => updateNumber("minSuccessRate", e.target.value)} placeholder="不限" /></label><label className="field">节点数量上限<input type="number" min="1" value={profile.limit ?? ""} onChange={(e) => updateNumber("limit", e.target.value)} placeholder="不限" /></label><details><summary>协议过滤（空=全部）</summary>{PROTOCOLS.map((protocol) => <label key={protocol} className="check-row"><input type="checkbox" checked={profile.includeProtocols.includes(protocol)} onChange={() => api.patchOutput(profile.id, { includeProtocols: toggle(profile.includeProtocols, protocol) }).then(reload)} />{protocol}</label>)}</details><details><summary>地区过滤（空=全部）</summary>{regions.map((region) => <label key={region} className="check-row"><input type="checkbox" checked={profile.includeRegions.includes(region)} onChange={() => api.patchOutput(profile.id, { includeRegions: toggle(profile.includeRegions, region) }).then(reload)} />{region}</label>)}</details><details><summary>来源过滤（空=全部）</summary>{sources.map((source) => <label key={source.id} className="check-row"><input type="checkbox" checked={profile.includeSourceIds.includes(source.id)} onChange={() => api.patchOutput(profile.id, { includeSourceIds: toggle(profile.includeSourceIds, source.id) }).then(reload)} />{source.name}</label>)}</details></div>;
 }
 
+type Theme = "light" | "dark";
+const THEME_KEY = "proxypanel.theme";
+
+function initialTheme(): Theme {
+  return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+}
+
 function App() {
   const [authed, setAuthed] = React.useState(Boolean(getToken()));
   const [stats, setStats] = React.useState<DashboardStats | null>(null);
@@ -201,10 +210,15 @@ function App() {
   const [nodes, setNodes] = React.useState<ProxyNode[]>([]);
   const [outputs, setOutputs] = React.useState<OutputProfile[]>([]);
   const [error, setError] = React.useState("");
+  const [theme, setTheme] = React.useState<Theme>(initialTheme);
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
   const reload = React.useCallback(() => { if (!getToken()) return; Promise.all([api.dashboard(), api.sources(), api.nodes(), api.outputs()]).then(([stats, sources, nodes, outputs]) => { setStats(stats); setSources(sources); setNodes(nodes); setOutputs(outputs); setError(""); }).catch((err) => { setError(err instanceof Error ? err.message : String(err)); }); }, []);
   React.useEffect(() => { if (authed) reload(); }, [authed, reload]);
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
-  return <main className="app-shell"><header className="app-header"><div className="brand"><IconBox name="shield" /><div><h1>ProxyPanel</h1><p>订阅整合、地区分类与节点优选</p></div></div><nav className="quick-nav"><a href="#sources">订阅源</a><a href="#nodes">节点</a><a href="#outputs">输出</a></nav><button className="btn secondary" type="button" onClick={() => { setToken(null); setAuthed(false); }}><Icon name="logOut" />退出</button></header>{error && <div className="alert error banner"><Icon name="shield" />{error}</div>}<section className="stats"><StatCard icon="database" label="订阅源" value={`${stats?.enabledSourceCount ?? 0}/${stats?.sourceCount ?? 0}`} hint="enabled / total" /><StatCard icon="nodes" label="节点" value={`${stats?.enabledNodeCount ?? 0}/${stats?.nodeCount ?? 0}`} hint="enabled / total" /><StatCard icon="activity" label="可用节点" value={stats?.availableNodeCount ?? 0} hint="probe passed" /><StatCard icon="globe" label="最近探测" value={fmt(stats?.lastProbeAt)} /></section><Sources sources={sources} reload={reload} /><Nodes nodes={nodes} sources={sources} reload={reload} /><Outputs outputs={outputs} sources={sources} nodes={nodes} reload={reload} /></main>;
+  return <main className="app-shell"><header className="app-header"><div className="brand"><IconBox name="shield" /><div><h1>ProxyPanel</h1><p>订阅整合、地区分类与节点优选</p></div></div><nav className="quick-nav"><a href="#sources">订阅源</a><a href="#nodes">节点</a><a href="#outputs">输出</a></nav><div className="header-actions"><button className="btn secondary" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}><Icon name={theme === "light" ? "moon" : "sun"} />{theme === "light" ? "暗色" : "浅色"}</button><button className="btn secondary" type="button" onClick={() => { setToken(null); setAuthed(false); }}><Icon name="logOut" />退出</button></div></header>{error && <div className="alert error banner"><Icon name="shield" />{error}</div>}<section className="stats"><StatCard icon="database" label="订阅源" value={`${stats?.enabledSourceCount ?? 0}/${stats?.sourceCount ?? 0}`} hint="enabled / total" /><StatCard icon="nodes" label="节点" value={`${stats?.enabledNodeCount ?? 0}/${stats?.nodeCount ?? 0}`} hint="enabled / total" /><StatCard icon="activity" label="可用节点" value={stats?.availableNodeCount ?? 0} hint="probe passed" /><StatCard icon="globe" label="最近探测" value={fmt(stats?.lastProbeAt)} /></section><Sources sources={sources} reload={reload} /><Nodes nodes={nodes} sources={sources} reload={reload} /><Outputs outputs={outputs} sources={sources} nodes={nodes} reload={reload} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
